@@ -2,25 +2,27 @@
 
 import { useEffect, useState } from 'react'
 import { generateQuestion } from '@/lib/generateQuestion'
-import { Category, Level } from '@/types/math'
+import { Category, Level, Question } from '@/types/math'
 import MathCard from '@/components/MathCard'
 import ChoiceButtons from '@/components/ChoiceButtons'
 import CategorySelector from '@/components/CategorySelector'
 import ProgressBar from '@/components/ProgressBar'
 import { getSuggestion } from '@/lib/getSuggestion'
+import { getNextLevel } from '@/lib/adaptiveLevel'
 
 export default function PracticePage() {
   const TOTAL = 10
 
   const [level, setLevel] = useState<Level>('SD')
   const [category, setCategory] = useState<Category>('arithmetic')
-  const [question, setQuestion] = useState<any>(null)
+  const [question, setQuestion] = useState<Question | null>(null)
 
   const [progress, setProgress] = useState(0)
   const [correctCount, setCorrectCount] = useState(0)
   const [feedback, setFeedback] = useState('')
   const [finished, setFinished] = useState(false)
   const [wrongMap, setWrongMap] = useState<Record<string, number>>({})
+  const [locked, setLocked] = useState(false)
 
   const load = () => {
     const q = generateQuestion(level, category)
@@ -31,43 +33,63 @@ export default function PracticePage() {
     setProgress(0)
     setCorrectCount(0)
     setFinished(false)
+    setWrongMap({})
     load()
   }, [level, category])
 
-    const handleSelect = (index: number) => {
-    if (!question || finished) return
+  const handleSelect = (index: number) => {
+    if (!question || finished || locked) return
 
-    if (index === question.correctIndex) {
-        setFeedback('Correct 👍')
-        setCorrectCount((prev) => prev + 1)
+    setLocked(true)
+
+    const isCorrect = index === question.correctIndex
+
+    if (isCorrect) {
+      setFeedback('Correct 👍')
+      setCorrectCount((c) => c + 1)
     } else {
-        setFeedback('Wrong')
-
-        setWrongMap((prev) => ({
+      setFeedback(`Wrong ❌ (Answer: ${question.answer})`)
+      setWrongMap((prev) => ({
         ...prev,
         [question.operation]: (prev[question.operation] || 0) + 1,
-        }))
+      }))
     }
 
-    const next = progress + 1
-    setProgress(next)
+    setProgress((prev) => {
+      const next = prev + 1
 
-    if (next >= TOTAL) {
+      if (next >= TOTAL) {
         setFinished(true)
-        return
-    }
+        setLocked(false)
+      } else {
+        const delay = isCorrect ? 400 : 900
 
-    load()
-    }
+        setTimeout(() => {
+          setFeedback('')
+          load()
+          setLocked(false)
+        }, delay)
+      }
 
-  const restart = () => {
+      return next
+    })
+  }
+
+    const restart = () => {
+    const accuracy = correctCount / TOTAL
+    const nextLevel = getNextLevel(level, accuracy)
+
+    setLevel(nextLevel)
     setProgress(0)
     setCorrectCount(0)
     setFinished(false)
+    setWrongMap({})
+    setFeedback('')
+    setLocked(false)
     load()
-  }
+    }
 
-  if (!question) return null
+  if (!question) return <div>Loading...</div>
 
   return (
     <div className="flex flex-col items-center justify-center h-screen gap-6">
@@ -83,34 +105,32 @@ export default function PracticePage() {
         <option value="SMA">SMA (High)</option>
       </select>
 
+      {/* Category */}
       <CategorySelector value={category} onChange={setCategory} />
 
+      {/* Progress */}
       <ProgressBar current={progress} total={TOTAL} />
 
-        {finished ? (
+      {finished ? (
         <div className="flex flex-col items-center gap-4">
-            <h2 className="text-xl">Finished 🎉</h2>
+          <h2 className="text-xl">Finished 🎉</h2>
 
-            <p>
-            Score: {correctCount} / {TOTAL}
-            </p>
+          <p>Score: {correctCount} / {TOTAL}</p>
 
-            <p>
-            Nilai: {Math.round((correctCount / TOTAL) * 100)}
-            </p>
+          <p>Nilai: {Math.round((correctCount / TOTAL) * 100)}</p>
 
-            <p className="text-center text-gray-600 max-w-md">
+          <p className="text-center text-gray-600 max-w-md">
             {getSuggestion(wrongMap)}
-            </p>
+          </p>
 
-            <button
+          <button
             onClick={restart}
             className="px-4 py-2 bg-black text-white rounded"
-            >
+          >
             Restart
-            </button>
+          </button>
         </div>
-        ) : (
+      ) : (
         <>
           <MathCard question={question.question} />
 
@@ -121,7 +141,8 @@ export default function PracticePage() {
         </>
       )}
 
-      <p>{feedback}</p>
+      {/* Feedback */}
+      <p className="text-lg">{feedback}</p>
     </div>
   )
 }
